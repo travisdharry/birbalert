@@ -1,7 +1,15 @@
+# Custom
+.DS_Store
+*.log
+/ignore
+cheatsheet.md
+config.yaml
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]
 *$py.class
+
 
 # C extensions
 *.so

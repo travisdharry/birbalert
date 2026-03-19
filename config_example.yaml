@@ -1,0 +1,39 @@
+# BirdNET Alert Configuration
+
+# Minimum confidence threshold (0.0 - 1.0)
+min_confidence: 0.7
+
+# Cooldown period in seconds - avoid duplicate alerts for the same species
+cooldown_seconds: 1800  # 30 minutes
+
+# Species to alert on (common names from BirdNET)
+# Leave empty [] to alert on ALL species above confidence threshold
+interesting_species: []
+
+# Species to always ignore (overrides interesting_species)
+ignore_species:
+  # Non-birds
+  - "Human vocal"
+  - "Human non-vocal"
+  - "Dog"
+  - "Engine"
+  # Common porch birds
+  - "House Sparrow"
+  # - "House Finch"
+  - "White-winged Dove"
+  # - "Northern Cardinal"
+  - "Blue Jay"
+  - "American Robin"
+  # Uninteresting birds
+  - "Boat-tailed Grackle"
+  - "Common Grackle"
+  - "Great-tailed Grackle"
+
+# Quiet hours - no alerts during these times (24-hour format)
+# Set both to null to disable quiet hours
+quiet_hours:
+  start: "23:45"  
+  end: "00:15"    
+
+# Home Assistant webhook URL
+home_assistant_webhook: "http://YOUR_HOME_ASSISTANT_IP:8123/api/webhook/YOUR_WEBHOOK_ID"

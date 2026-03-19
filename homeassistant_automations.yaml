@@ -1,0 +1,20 @@
+alias: BirbAlert
+description: Receive bird detections from Raspberry Pi
+trigger:
+  - platform: webhook
+    webhook_id: birdnet_detection
+    allowed_methods:
+      - POST
+    local_only: false
+condition: []
+action:
+  - service: notify.mobile_app_YOUR_PHONE_NAME
+    data:
+      title: "BirbAlert! Happy Anniversary!"
+      message: "{{ trigger.json.species }} detected ({{ (trigger.json.confidence * 100) | round(0) }}% confidence)"
+      data:
+        tag: birb_alert
+        channel: BirbAlerts
+        importance: high
+mode: queued
+max: 10
