@@ -5,9 +5,6 @@ Bird call detection and notification device
 I designed this BirbAlert system as an anniversary gift for my wife, who loves spotting interesting birds in our neighborhood. She has been staying at home watching our toddler son and doesn't get to enjoy as much time drinking coffee on the porch as she would like, and when she does there is usually someone else there screaming and scaring off the birds. I wanted to help her optimize her trips to the porch so she can have a better chance of spotting something fun when she does go outside. <br>
 BirbAlert is installed on a raspberry pi with a microphone attached and mounted on our porch. It listens continuously and analyzes the recordings to identify bird calls. Whenever an interesting bird is detected, it sends a message to our Home Assistant, which then sends a notification to her phone so she can run outside and spot the bird.
 
-## Parts List
-
-
 ## Project Plan
 ### Order Parts
 #### CanaKit - $138.80
@@ -15,12 +12,12 @@ BirbAlert is installed on a raspberry pi with a microphone attached and mounted 
 - [x]  Raspberry Pi 4 Model B (4GB RAM)
 - [x]  Official Raspberry Pi USB-C Power Supply (5V, 3A)
 - [x]  Raspberry Pi Case
-- [x]  **32–64GB microSD card (Class 10) -** Samsung EVO, SanDisk Extreme
+- [x]  32–64GB microSD card (Class 10) - Samsung EVO, SanDisk Extreme
 
 #### Sonorous Objects - $116.21
 
-- [x]  **Mic**
-    - [x]  **SO.1 Omni Microphone (uses Primo EM272)**
+- [x]  Mic
+    - [x]  SO.1 Omni Microphone (uses Primo EM272)
 - [x]  Foam microphone windscreen
 - [x]  Shielded 3.5mm audio extension cable
 
@@ -137,6 +134,7 @@ mkdir -p ~/birdnet_logs
 - Verified ~24 GB free space — plenty for Docker and BirdNET.
 
 **Confirm analyzer is working**
+
 mv /tmp/test.wav ~/birdnet_recordings/ (move file)
 
 docker run --rm \
