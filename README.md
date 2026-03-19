@@ -1,8 +1,9 @@
-# birbalert
+# BirbAlert
 Bird call detection and notification device
 
 ## About
-My wife,  has been caring for our toddler son. As an anniversary gift for my wife, I wanted to design a system that would send notifications to her phone whenever an interesting bird was outside. installed this code on a Raspberry Pi and attached a microphone, set it on our front porch
+I designed this BirbAlert system as an anniversary gift for my wife, who loves spotting interesting birds in our neighborhood. She has been staying at home watching our toddler son and doesn't get to enjoy as much time drinking coffee on the porch as she would like, and when she does there is usually someone else there screaming and scaring off the birds. I wanted to help her optimize her trips to the porch so she can have a better chance of spotting something fun when she does go outside. <br>
+BirbAlert is installed on a raspberry pi with a microphone attached and mounted on our porch. It listens continuously and analyzes the recordings to identify bird calls. Whenever an interesting bird is detected, it sends a message to our Home Assistant, which then sends a notification to her phone so she can run outside and spot it.
 
 ## Parts List
 
