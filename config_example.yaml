@@ -3,6 +3,13 @@
 # Minimum confidence threshold (0.0 - 1.0)
 min_confidence: 0.7
 
+# Analysis parameters - improve detection accuracy
+analysis:
+  sensitivity: 1.0       # 0.5-1.5, default 1.0. Higher = more detections but more false positives
+  overlap: 1.5           # Overlap between analysis segments in seconds (improves accuracy)
+  sigmoid_sensitivity: 1.0  # Additional sensitivity control
+  normalize_audio: true  # Normalize audio levels before analysis (requires sox)
+
 # Cooldown period in seconds - avoid duplicate alerts for the same species
 cooldown_seconds: 1800  # 30 minutes
 
@@ -34,6 +41,14 @@ ignore_species:
 quiet_hours:
   start: "23:45"  
   end: "00:15"    
+
+# Location-based filtering - improves accuracy by only detecting birds in your area
+# Get coordinates from: https://www.latlong.net/
+location:
+  latitude: 30.3    # Central Texas example
+  longitude: -97.7  # Central Texas example
+  # week: -1 will auto-detect current week (1-52)
+  # Set specific week number to override (useful for testing)
 
 # Home Assistant webhook URL
 home_assistant_webhook: "http://YOUR_HOME_ASSISTANT_IP:8123/api/webhook/YOUR_WEBHOOK_ID"

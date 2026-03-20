@@ -38,6 +38,16 @@ load_config() {
     QUIET_END=$(grep "^  end:" "$CONFIG_FILE" | awk '{print $2}' | tr -d '"')
     HA_WEBHOOK=$(grep "^home_assistant_webhook:" "$CONFIG_FILE" | awk '{print $2}' | tr -d '"')
     
+    # Parse location settings
+    LATITUDE=$(grep "^  latitude:" "$CONFIG_FILE" | awk '{print $2}')
+    LONGITUDE=$(grep "^  longitude:" "$CONFIG_FILE" | awk '{print $2}')
+    
+    # Parse analysis settings
+    SENSITIVITY=$(grep "^  sensitivity:" "$CONFIG_FILE" | awk '{print $2}')
+    OVERLAP=$(grep "^  overlap:" "$CONFIG_FILE" | awk '{print $2}')
+    SIGMOID_SENS=$(grep "^  sigmoid_sensitivity:" "$CONFIG_FILE" | awk '{print $2}')
+    NORMALIZE_AUDIO=$(grep "^  normalize_audio:" "$CONFIG_FILE" | awk '{print $2}')
+    
     # Load interesting species list
     INTERESTING_SPECIES=()
     in_interesting=false
@@ -61,9 +71,21 @@ load_config() {
     
     echo "Loaded config:"
     echo "  Min confidence: $MIN_CONF"
+    if [ -n "$SENSITIVITY" ]; then
+        echo "  Sensitivity: $SENSITIVITY"
+    fi
+    if [ -n "$OVERLAP" ]; then
+        echo "  Overlap: ${OVERLAP}s"
+    fi
+    if [ "$NORMALIZE_AUDIO" = "true" ]; then
+        echo "  Audio normalization: enabled"
+    fi
     echo "  Cooldown: ${COOLDOWN_SECONDS}s"
     echo "  Interesting species: ${#INTERESTING_SPECIES[@]}"
     echo "  Ignore species: ${#IGNORE_SPECIES[@]}"
+    if [ -n "$LATITUDE" ] && [ -n "$LONGITUDE" ]; then
+        echo "  Location: $LATITUDE, $LONGITUDE"
+    fi
     if [ -n "$QUIET_START" ]; then
         echo "  Quiet hours: $QUIET_START - $QUIET_END"
     fi
@@ -194,7 +216,7 @@ mkdir -p "$CHECKPOINTS_DIR"
 
 # Initialize rolling log with header if it doesn't exist
 if [ ! -f "$ROLLING_LOG" ]; then
-    echo "Timestamp,Start (s),End (s),Scientific name,Common name,Confidence" > "$ROLLING_LOG"
+    echo "Timestamp,Start (s),End (s),Scientific name,Common name,Confidence,Filepath" > "$ROLLING_LOG"
 fi
 
 echo "Starting BirdNET loop with filtering..."
@@ -227,6 +249,16 @@ do
         continue
     fi
 
+    # Normalize audio if enabled (improves detection of distant/quiet birds)
+    if [ "$NORMALIZE_AUDIO" = "true" ]; then
+        if command -v sox &> /dev/null; then
+            sox "$FULL_PATH" "${FULL_PATH}.norm.wav" norm -3 2>/dev/null
+            if [ -s "${FULL_PATH}.norm.wav" ]; then
+                mv "${FULL_PATH}.norm.wav" "$FULL_PATH"
+            fi
+        fi
+    fi
+
     # Run BirdNET via Docker with persistent model cache
     docker run --rm \
         --entrypoint python \
@@ -237,6 +269,12 @@ do
         "/recordings/$FILE" -o /logs \
         --rtype csv \
         --min_conf $MIN_CONF \
+        ${LATITUDE:+--lat $LATITUDE} \
+        ${LONGITUDE:+--lon $LONGITUDE} \
+        ${LATITUDE:+--week -1} \
+        ${SENSITIVITY:+--sensitivity $SENSITIVITY} \
+        ${OVERLAP:+--overlap $OVERLAP} \
+        ${SIGMOID_SENS:+--sigmoid_sensitivity $SIGMOID_SENS} \
         2>/dev/null
 
     # DELETE AUDIO IMMEDIATELY - we don't need it anymore
@@ -301,7 +339,7 @@ do
         LINE_COUNT=$(wc -l < "$ROLLING_LOG")
         if [ "$LINE_COUNT" -gt "$LOG_MAX_LINES" ]; then
             tail -n $((LOG_MAX_LINES / 2)) "$ROLLING_LOG" > "$ROLLING_LOG.tmp"
-            echo "Timestamp,Start (s),End (s),Scientific name,Common name,Confidence" > "$ROLLING_LOG"
+            echo "Timestamp,Start (s),End (s),Scientific name,Common name,Confidence,Filepath" > "$ROLLING_LOG"
             tail -n +2 "$ROLLING_LOG.tmp" >> "$ROLLING_LOG"
             rm -f "$ROLLING_LOG.tmp"
             echo "  📋 Trimmed rolling log"
