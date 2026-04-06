@@ -9,10 +9,8 @@ RECORDINGS_DIR="$HOME/birdnet_recordings"
 LOGS_DIR="$HOME/birdnet_logs"
 CHECKPOINTS_DIR="$HOME/birdnet_checkpoints"
 
-# Saramonic mic
-DEVICE="plughw:3,0"
-# EM212 mic (if you switch mics, update this)
-# DEVICE="plughw:Device,0"
+# Capture device is auto-detected at startup.
+DEVICE=""
 
 # Recording settings
 DURATION=15  # 15 seconds per recording
@@ -38,6 +36,11 @@ load_config() {
     QUIET_END=$(grep "^  end:" "$CONFIG_FILE" | awk '{print $2}' | tr -d '"')
     HA_WEBHOOK=$(grep "^home_assistant_webhook:" "$CONFIG_FILE" | awk '{print $2}' | tr -d '"')
     
+    # Parse AWS settings
+    AWS_ENABLED=$(grep "^  enabled:" "$CONFIG_FILE" | awk '{print $2}')
+    AWS_API_URL=$(grep "^  api_url:" "$CONFIG_FILE" | awk '{print $2}' | tr -d '"')
+    AWS_API_KEY=$(grep "^  api_key:" "$CONFIG_FILE" | awk '{print $2}' | tr -d '"')
+    
     # Parse location settings
     LATITUDE=$(grep "^  latitude:" "$CONFIG_FILE" | awk '{print $2}')
     LONGITUDE=$(grep "^  longitude:" "$CONFIG_FILE" | awk '{print $2}')
@@ -45,7 +48,6 @@ load_config() {
     # Parse analysis settings
     SENSITIVITY=$(grep "^  sensitivity:" "$CONFIG_FILE" | awk '{print $2}')
     OVERLAP=$(grep "^  overlap:" "$CONFIG_FILE" | awk '{print $2}')
-    SIGMOID_SENS=$(grep "^  sigmoid_sensitivity:" "$CONFIG_FILE" | awk '{print $2}')
     NORMALIZE_AUDIO=$(grep "^  normalize_audio:" "$CONFIG_FILE" | awk '{print $2}')
     
     # Load interesting species list
@@ -93,6 +95,9 @@ load_config() {
         echo "  Webhook: $HA_WEBHOOK"
     else
         echo "  Webhook: NOT CONFIGURED"
+    fi
+    if [ "$AWS_ENABLED" = "true" ] && [ -n "$AWS_API_URL" ]; then
+        echo "  AWS logging: enabled"
     fi
 }
 
@@ -151,18 +156,62 @@ is_interesting_species() {
     return 1  # Not interesting
 }
 
+# Auto-detect capture device, preferring USB microphones.
+detect_audio_device() {
+    local line
+    local card
+    local dev
+
+    line=$(arecord -l 2>/dev/null | awk '
+        /card [0-9]+: .*device [0-9]+:/ && ($0 ~ /USB|Saramonic|PnP|Audio Device/) {print; exit}
+    ')
+
+    # Fallback: first available capture device.
+    if [ -z "$line" ]; then
+        line=$(arecord -l 2>/dev/null | awk '/card [0-9]+: .*device [0-9]+:/ {print; exit}')
+    fi
+
+    if [ -z "$line" ]; then
+        echo "❌ No capture device found (arecord -l returned no input devices)."
+        return 1
+    fi
+
+    card=$(echo "$line" | sed -E 's/.*card ([0-9]+):.*/\1/')
+    dev=$(echo "$line" | sed -E 's/.*device ([0-9]+):.*/\1/')
+
+    if [ -z "$card" ] || [ -z "$dev" ]; then
+        echo "❌ Failed to parse capture device from: $line"
+        return 1
+    fi
+
+    DEVICE="plughw:${card},${dev}"
+    echo "  Audio input: $DEVICE"
+    return 0
+}
+
 # Check cooldown for species
 check_cooldown() {
     local species="$1"
     local current_time=$(date +%s)
+    local last_alert=""
+    local time_diff=0
+
+    # Allow disabling cooldown via config.
+    if [ -z "$COOLDOWN_SECONDS" ] || [ "$COOLDOWN_SECONDS" -le 0 ]; then
+        return 0
+    fi
     
     # Create cooldown file if it doesn't exist
     touch "$COOLDOWN_FILE"
     
     # Check if species was recently alerted
     if grep -q "^$species|" "$COOLDOWN_FILE"; then
-        last_alert=$(grep "^$species|" "$COOLDOWN_FILE" | cut -d'|' -f2)
-        time_diff=$((current_time - last_alert))
+        # Use only the most recent numeric timestamp for this species.
+        last_alert=$(grep "^$species|" "$COOLDOWN_FILE" | tail -n 1 | cut -d'|' -f2 | tr -cd '0-9')
+
+        if [ -n "$last_alert" ]; then
+            time_diff=$((current_time - last_alert))
+        fi
         
         if [ $time_diff -lt $COOLDOWN_SECONDS ]; then
             return 1  # Still in cooldown
@@ -177,35 +226,60 @@ check_cooldown() {
     return 0  # Not in cooldown, can alert
 }
 
+# Log detection to AWS (runs in background, non-blocking)
+log_to_aws() {
+    local species="$1"
+    local confidence="$2"
+    local timestamp="$3"
+    local alerted="$4"  # true or false
+    
+    if [ "$AWS_ENABLED" != "true" ] || [ -z "$AWS_API_URL" ] || [ -z "$AWS_API_KEY" ]; then
+        return  # AWS not configured
+    fi
+    
+    # Send in background, don't wait for response
+    (curl -X POST "$AWS_API_URL" \
+        -H "Content-Type: application/json" \
+        -H "x-api-key: $AWS_API_KEY" \
+        -d "{\"species\":\"$species\",\"confidence\":$confidence,\"timestamp\":\"$timestamp\",\"alerted\":$alerted}" \
+        --max-time 10 \
+        -s -S > /dev/null 2>&1) &
+}
+
 # Send alert to Home Assistant
 send_alert() {
     local species="$1"
     local confidence="$2"
     local timestamp="$3"
     
-    if [ -z "$HA_WEBHOOK" ]; then
-        return  # No webhook configured
+    # Send to Home Assistant (existing)
+    if [ -n "$HA_WEBHOOK" ]; then
+        echo "  📲 Sending alert to Home Assistant..."
+        
+        local payload="{\"species\":\"$species\",\"confidence\":$confidence,\"timestamp\":\"$timestamp\"}"
+        echo "     DEBUG: URL=$HA_WEBHOOK"
+        echo "     DEBUG: Payload=$payload"
+        
+        response=$(curl -X POST "$HA_WEBHOOK" \
+            -H "Content-Type: application/json" \
+            -d "$payload" \
+            --max-time 5 \
+            -s -S -w "\nHTTP_CODE:%{http_code}" 2>&1)
+        
+        http_code=$(echo "$response" | grep "HTTP_CODE:" | cut -d':' -f2)
+        
+        if [ "$http_code" = "200" ]; then
+            echo "     ✅ Alert sent successfully (HTTP $http_code)"
+        else
+            echo "     ❌ Alert failed (HTTP $http_code)"
+            echo "     Error: $response"
+        fi
     fi
     
-    echo "  📲 Sending alert to Home Assistant..."
-    
-    local payload="{\"species\":\"$species\",\"confidence\":$confidence,\"timestamp\":\"$timestamp\"}"
-    echo "     DEBUG: URL=$HA_WEBHOOK"
-    echo "     DEBUG: Payload=$payload"
-    
-    response=$(curl -X POST "$HA_WEBHOOK" \
-        -H "Content-Type: application/json" \
-        -d "$payload" \
-        --max-time 5 \
-        -s -S -w "\nHTTP_CODE:%{http_code}" 2>&1)
-    
-    http_code=$(echo "$response" | grep "HTTP_CODE:" | cut -d':' -f2)
-    
-    if [ "$http_code" = "200" ]; then
-        echo "     ✅ Alert sent successfully (HTTP $http_code)"
-    else
-        echo "     ❌ Alert failed (HTTP $http_code)"
-        echo "     Error: $response"
+    # Send to AWS (new - non-blocking)
+    if [ "$AWS_ENABLED" = "true" ] && [ -n "$AWS_API_URL" ]; then
+        echo "  ☁️  Logging to AWS..."
+        log_to_aws "$species" "$confidence" "$timestamp" "true"
     fi
 }
 
@@ -225,6 +299,10 @@ echo "Logs dir: $LOGS_DIR"
 echo ""
 
 load_config
+if ! detect_audio_device; then
+    echo "Exiting: no usable audio capture device detected."
+    exit 1
+fi
 echo ""
 
 # ===== GRACEFUL SHUTDOWN =====
@@ -260,6 +338,8 @@ do
     fi
 
     # Run BirdNET via Docker with persistent model cache
+    echo "  🔎 Analyzing..."
+    ANALYZE_ERR_FILE="$LOGS_DIR/analyze_last_error.log"
     docker run --rm \
         --entrypoint python \
         -v "$RECORDINGS_DIR":/recordings \
@@ -274,8 +354,43 @@ do
         ${LATITUDE:+--week -1} \
         ${SENSITIVITY:+--sensitivity $SENSITIVITY} \
         ${OVERLAP:+--overlap $OVERLAP} \
-        ${SIGMOID_SENS:+--sigmoid_sensitivity $SIGMOID_SENS} \
-        2>/dev/null
+        2>"$ANALYZE_ERR_FILE"
+    ANALYZE_EXIT=$?
+
+    if [ $ANALYZE_EXIT -ne 0 ]; then
+        echo "  ⚠ Analysis failed (exit code: $ANALYZE_EXIT)"
+        if [ -s "$ANALYZE_ERR_FILE" ]; then
+            echo "  ⚠ Analyzer error output:"
+            sed 's/^/    /' "$ANALYZE_ERR_FILE" | tail -20
+        fi
+
+        # Exit code 2 usually means an unsupported or malformed argument.
+        # Retry with minimal, known-safe arguments so detection can continue.
+        if [ $ANALYZE_EXIT -eq 2 ]; then
+            echo "  ↩ Retrying analysis with compatibility args..."
+            docker run --rm \
+                --entrypoint python \
+                -v "$RECORDINGS_DIR":/recordings \
+                -v "$LOGS_DIR":/logs \
+                -v "$CHECKPOINTS_DIR":/birdnet_analyzer/checkpoints \
+                birdnet-pi -m birdnet_analyzer.analyze \
+                "/recordings/$FILE" -o /logs \
+                --rtype csv \
+                --min_conf $MIN_CONF \
+                2>"$ANALYZE_ERR_FILE"
+            ANALYZE_EXIT=$?
+
+            if [ $ANALYZE_EXIT -eq 0 ]; then
+                echo "  ✅ Compatibility retry succeeded"
+            else
+                echo "  ⚠ Compatibility retry failed (exit code: $ANALYZE_EXIT)"
+                if [ -s "$ANALYZE_ERR_FILE" ]; then
+                    echo "  ⚠ Analyzer error output:"
+                    sed 's/^/    /' "$ANALYZE_ERR_FILE" | tail -20
+                fi
+            fi
+        fi
+    fi
 
     # DELETE AUDIO IMMEDIATELY - we don't need it anymore
     rm -f "$FULL_PATH" 2>/dev/null
@@ -283,6 +398,7 @@ do
     # Process results
     RESULT_CSV="$LOGS_DIR/${FILE%.wav}.BirdNET.results.csv"
     if [ -f "$RESULT_CSV" ]; then
+        echo "  📄 Analysis results found"
         # Read detections and process each one
         while IFS=',' read -r start end sci_name common_name confidence filepath; do
             # Skip header line
@@ -292,6 +408,9 @@ do
             
             # Log ALL detections to rolling log
             echo "$(date '+%Y-%m-%d %H:%M:%S'),$start,$end,$sci_name,$common_name,$confidence,$filepath" >> "$ROLLING_LOG"
+            
+            # Log ALL detections to AWS (in background)
+            log_to_aws "$common_name" "$confidence" "$(date -Iseconds)" "false"
             
             echo "  🐦 $common_name (conf: $confidence)"
             
@@ -329,6 +448,8 @@ do
         
         # DELETE CSV IMMEDIATELY - data already processed
         rm -f "$RESULT_CSV" 2>/dev/null
+    else
+        echo "  ℹ No detections this cycle"
     fi
     
     # Delete any other analysis files (selection tables, etc)

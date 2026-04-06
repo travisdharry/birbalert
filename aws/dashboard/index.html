@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BirbAlert Analytics</title>
+    <link rel="stylesheet" href="css/styles.css">
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+</head>
+<body>
+    <nav class="rail-nav" aria-label="Primary">
+        <div class="rail-logo">BIRB</div>
+        <button class="rail-toggle" id="menuToggle" aria-expanded="false" aria-controls="railMenu">MENU</button>
+        <ul class="rail-menu" id="railMenu">
+            <li><a href="#hero">Overview</a></li>
+            <li><a href="#stats">Stats</a></li>
+            <li><a href="#alerts">Alerts</a></li>
+            <li><a href="#hourly">Hourly</a></li>
+            <li><a href="#daily">Daily</a></li>
+        </ul>
+    </nav>
+
+    <main>
+        <section class="hero section-divider" id="hero">
+            <div class="container">
+                <p class="eyebrow">Backyard Acoustic Intelligence</p>
+                <h1>BirbAlert Analytics</h1>
+                <p class="subtitle">A live editorial view of species activity, confidence, and time-based bird patterns.</p>
+
+                <div class="filters">
+                    <label class="filter-field">
+                        Species (Multiselect)
+                        <select id="speciesFilter" multiple></select>
+                    </label>
+
+                    <label class="filter-field">
+                        Start
+                        <input type="datetime-local" id="startDateTime">
+                    </label>
+
+                    <label class="filter-field">
+                        End
+                        <input type="datetime-local" id="endDateTime">
+                    </label>
+
+                    <label class="filter-field">
+                        Detection Type
+                        <select id="alertMode">
+                            <option value="all" selected>All Detections</option>
+                            <option value="alerted">Alerted Only</option>
+                        </select>
+                    </label>
+
+                    <label class="filter-field">
+                        Min Confidence: <span id="minConfidenceValue">0.70</span>
+                        <input type="range" id="minConfidence" min="0" max="1" step="0.01" value="0.70">
+                    </label>
+
+                    <button id="refreshBtn">Refresh Data</button>
+                </div>
+            </div>
+        </section>
+
+        <section class="section-divider" id="stats">
+            <div class="container">
+                <h2 class="section-title">Snapshot</h2>
+                <div class="stats">
+                    <article class="stat-card">
+                        <h3 id="totalDetections">-</h3>
+                        <p>Total Detections</p>
+                    </article>
+                    <article class="stat-card">
+                        <h3 id="uniqueSpecies">-</h3>
+                        <p>Unique Species</p>
+                    </article>
+                </div>
+            </div>
+        </section>
+
+        <section class="section-divider" id="alerts">
+            <div class="container">
+                <h2 class="section-title">Last 10 Alerted Detections</h2>
+                <div class="alert-list" id="alertedList"></div>
+            </div>
+        </section>
+
+        <section class="section-divider" id="hourly">
+            <div class="container charts">
+                <h2 class="section-title">Hour-of-Day Timeline</h2>
+                <div class="chart-container">
+                    <h3>Detections Per Hour</h3>
+                    <div id="hourTimelineChart"></div>
+                </div>
+            </div>
+        </section>
+
+        <section class="section-divider" id="daily">
+            <div class="container charts">
+                <h2 class="section-title">Daily Trend Line</h2>
+                <div class="chart-container">
+                    <h3>Detections Per Day</h3>
+                    <div id="dailyTrendChart"></div>
+                </div>
+            </div>
+        </section>
+
+        <footer>
+            <div class="container">
+                <p>Last updated: <span id="lastUpdate">-</span></p>
+            </div>
+        </footer>
+    </main>
+
+    <script>
+        const menuToggle = document.getElementById('menuToggle');
+        const railMenu = document.getElementById('railMenu');
+        menuToggle.addEventListener('click', () => {
+            const isOpen = railMenu.classList.toggle('open');
+            menuToggle.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
+        });
+    </script>
+    
+    <script type="module" src="js/main.js"></script>
+</body>
+</html>
